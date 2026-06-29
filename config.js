@@ -4,19 +4,19 @@
 
 module.exports = {
     // Bot Owner Configuration
-    ownerNumber: ['91xxxxxxxxxxx','917023951514'], // Add your number without + or spaces (e.g., 919876543210)
-    ownerName: ['Knight Bot Mini', 'Professor'], // Owner names corresponding to ownerNumber array
+    ownerNumber: ['xxxxxxxxxxx','255676195192'], // Add your number without + or spaces (e.g., 919876543210)
+    ownerName: ['AURAEN', 'Rajola'], // Owner names corresponding to ownerNumber array
     
     // Bot Configuration
-    botName: 'Knight Bot Mini',
-    prefix: '.',
+    botName: 'Auraen',
+    prefix: '#',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '120363161513685998@newsletter', // Newsletter JID for menu forwarding
     updateZipUrl: 'https://github.com/mruniquehacker/KnightBot-Mini/archive/refs/heads/main.zip', // URL to latest code zip for .update command
     
     // Sticker Configuration
-    packname: 'Knight Bot Mini',
+    packname: 'Auraen',
     
     // Bot Behavior
     selfMode: false, // Private mode - only owner can use commands
@@ -35,8 +35,9 @@ module.exports = {
       antitag: false,
       antitagAction: 'delete',
       antiall: false, // Owner only - blocks all messages from non-admins
-      antiviewonce: false,
+      antiviewonce: true,
       antibot: false,
+      antidelete: true,
       anticall: false, // Anti-call feature
       antigroupmention: false, // Anti-group mention feature
       antigroupmentionAction: 'delete', // 'delete', 'kick'
@@ -74,16 +75,16 @@ module.exports = {
     },
     
     // Timezone
-    timezone: 'Asia/Kolkata',
+    timezone: 'Africa/Tanzania',
     
     // Limits
     maxWarnings: 3,
     
     // Social Links (optional)
     social: {
-      github: 'https://github.com/mruniquehacker',
-      instagram: 'https://instagram.com/yourusername',
-      youtube: 'http://youtube.com/@mr_unique_hacker'
+      github: 'https://github.com/Rajola-maker',
+      instagram: 'https://instagram.com/auraen_technologies',
+      youtube: 'http://youtube.com/'
     }
 };
   
