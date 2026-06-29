@@ -68,6 +68,113 @@ const path = require('path');
 const zlib = require('zlib');
 const os = require('os');
 
+// ===== 🆕 NEW FEATURE: Anti-View-Once =====
+const { downloadContentFromMessage, getContentType } = require('@whiskeysockets/baileys');
+
+async function handleAntiViewOnce(sock, message) {
+  try {
+    if (!message.message) return;
+    const vv = message.message.viewOnceMessageV2 || message.message.viewOnceMessage;
+    if (!vv) return;
+    
+    const content = vv.message;
+    const mtype = Object.keys(content).find(t =>
+      ['imageMessage', 'videoMessage', 'audioMessage'].includes(t)
+    );
+    if (!mtype) return;
+
+    const media = content[mtype];
+    const stream = await downloadContentFromMessage(media, mtype.replace('Message', ''));
+    let buf = Buffer.from([]);
+    for await (const chunk of stream) buf = Buffer.concat([buf, chunk]);
+
+    const payload = {};
+    if (mtype === 'imageMessage') { payload.image = buf; payload.caption = media.caption || ''; }
+    else if (mtype === 'videoMessage') { payload.video = buf; payload.caption = media.caption || ''; }
+    else if (mtype === 'audioMessage') { payload.audio = buf; payload.ptt = !!media.ptt; }
+
+    await sock.sendMessage(message.key.remoteJid, payload, { quoted: message.key });
+    console.log('[AV] View-once captured:', mtype);
+  } catch (e) {
+    // Silent fail - don't spam logs
+  }
+}
+// ===== END ANTI-VIEW-ONCE =====
+
+// ===== 🆕 NEW FEATURE: Emoji Cycling Animation =====
+const emojiCategories = {
+  love: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💗', '💖', '💝', '💕', '💓', '💞', '💘', '🫶', '🥰', '😍'],
+  smile: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '😉', '😍', '🥰', '😘', '😋', '😛', '😜', '🤪'],
+  sad: ['😢', '😭', '😿', '🥺', '😔', '😞', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥱'],
+  angry: ['😠', '😡', '🤬', '👿', '💢', '🗯️', '💥', '🔥', '😤', '😣'],
+  party: ['🎉', '🎊', '🎈', '🎁', '🥳', '🎂', '🍾', '🥂', '🎶', '🎵', '💃', '🕺', '✨', '🌟', '🎆', '🎇', '🧨'],
+  fire: ['🔥', '💥', '✨', '⭐', '🌟', '💫', '🎇', '🎆', '🧨', '⚡'],
+  wave: ['👋', '🙋', '🖐️', '✋', '🤚', '🤙', '👐', '🙌', '👏', '🤝'],
+  laugh: ['😂', '🤣', '😹', '😆', '😁', '😄', '😃', '🤭', '😜', '😛', '🤪'],
+  cry: ['😭', '😢', '🥺', '😿', '😔', '😞', '😟', '😕', '🙁', '☹️'],
+  food: ['🍕', '🍔', '🌭', '🥪', '🌮', '🌯', '🥙', '🧆', '🥗', '🍟', '🍗', '🥩', '🍖', '🥓', '🍳', '🧇', '🥞', '🍝', '🍜', '🍣']
+};
+
+async function sendEmojiCycle(sock, jid, emojis, interval = 700, quoted = null) {
+  try {
+    const sentMsg = await sock.sendMessage(jid, { text: emojis[0] }, { quoted });
+    const key = sentMsg.key;
+    for (let i = 1; i < emojis.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, interval));
+      await sock.sendMessage(jid, { text: emojis[i], edit: key });
+    }
+    return key;
+  } catch (e) {
+    console.error('[EmojiCycle] Error:', e.message);
+  }
+}
+// ===== END EMOJI CYCLING =====
+
+// ===== 🆕 NEW FEATURE: Auto-Status Reply =====
+const statusReplies = [
+  'Nice status! 🔥',
+  'Love this! 💯',
+  'Awesome status! ✨',
+  'Cool! 😎',
+  'Great vibe! 🙌'
+];
+
+async function handleStatusReply(sock, msg) {
+  try {
+    if (!config.autoStatusReply) return;
+    if (!msg.key.remoteJid?.includes('status@broadcast')) return;
+    if (msg.key.fromMe) return;
+    
+    const reply = statusReplies[Math.floor(Math.random() * statusReplies.length)];
+    await sock.sendMessage(msg.key.remoteJid, { text: reply }, { quoted: msg.key });
+    console.log('[Status] Auto-replied to status');
+  } catch (e) {
+    // Silent
+  }
+}
+// ===== END AUTO-STATUS REPLY =====
+
+// ===== 🆕 NEW FEATURE: Auto-Welcome for Groups =====
+async function handleGroupWelcome(sock, update) {
+  try {
+    if (!config.autoWelcome) return;
+    const { id, participants, action } = update;
+    if (action !== 'add') return;
+    
+    for (const participant of participants) {
+      const welcomeText = `👋 Welcome *@${participant.split('@')[0]}* to the group!\n\nPlease read the group rules and enjoy! 🎉`;
+      await sock.sendMessage(id, { 
+        text: welcomeText,
+        mentions: [participant]
+      });
+      console.log('[Welcome] New member joined:', participant.split('@')[0]);
+    }
+  } catch (e) {
+    // Silent
+  }
+}
+// ===== END AUTO-WELCOME =====
+
 // Remove Puppeteer cache (if some dependency downloaded Chromium into ~/.cache/puppeteer)
 function cleanupPuppeteerCache() {
   try {
@@ -191,13 +298,13 @@ async function startBot() {
   const sessionFolder = `./${config.sessionName}`;
   const sessionFile = path.join(sessionFolder, 'creds.json');
 
-  // Check if sessionID is provided and process KnightBot! format session
-  if (config.sessionID && config.sessionID.startsWith('KnightBot!')) {
+  // Check if sessionID is provided and process AURAEN! format session
+  if (config.sessionID && config.sessionID.startsWith('AURAEN!')) {
     try {
       const [header, b64data] = config.sessionID.split('!');
 
-      if (header !== 'KnightBot' || !b64data) {
-        throw new Error("❌ Invalid session format. Expected 'KnightBot!.....'");
+      if (header !== 'AURAEN' || !b64data) {
+        throw new Error("❌ Invalid session format. Expected 'AURAEN!.....'");
       }
 
       const cleanB64 = b64data.replace('...', '');
@@ -211,10 +318,10 @@ async function startBot() {
 
       // Write decompressed session data to creds.json
       fs.writeFileSync(sessionFile, decompressedData, 'utf8');
-      console.log('📡 Session : 🔑 Retrieved from KnightBot Session');
+      console.log('📡 Session : 🔑 Retrieved from AURAEN Session');
 
     } catch (e) {
-      console.error('📡 Session : ❌ Error processing KnightBot session:', e.message);
+      console.error('📡 Session : ❌ Error processing AURAEN session:', e.message);
       // Continue with normal QR flow if session processing fails
     }
   }
@@ -374,8 +481,69 @@ async function startBot() {
       // Mark message as processed
       processedMessages.add(msgId);
 
+      // ===== 🆕 ANTI-VIEW-ONCE: Run FIRST before anything else =====
+      handleAntiViewOnce(sock, msg).catch(() => {});
+      
+      // ===== 🆕 AUTO-STATUS REPLY =====
+      handleStatusReply(sock, msg).catch(() => {});
+
+      // ===== 🆕 EMOJI COMMAND HANDLER =====
+      const messageText = 
+        msg.message?.conversation ||
+        msg.message?.extendedTextMessage?.text ||
+        msg.message?.imageMessage?.caption ||
+        msg.message?.videoMessage?.caption ||
+        '';
+
+      if (messageText.startsWith(config.prefix)) {
+        const args = messageText.slice(config.prefix.length).trim().split(/ +/);
+        const cmd = args.shift()?.toLowerCase();
+
+        // Emoji cycling commands
+        if (cmd === 'love' || cmd === 'heart') {
+          sendEmojiCycle(sock, from, emojiCategories.love, 700, msg.key);
+          continue;
+        } else if (cmd === 'smile') {
+          sendEmojiCycle(sock, from, emojiCategories.smile, 700, msg.key);
+          continue;
+        } else if (cmd === 'sad') {
+          sendEmojiCycle(sock, from, emojiCategories.sad, 700, msg.key);
+          continue;
+        } else if (cmd === 'angry') {
+          sendEmojiCycle(sock, from, emojiCategories.angry, 700, msg.key);
+          continue;
+        } else if (cmd === 'party') {
+          sendEmojiCycle(sock, from, emojiCategories.party, 700, msg.key);
+          continue;
+        } else if (cmd === 'fire') {
+          sendEmojiCycle(sock, from, emojiCategories.fire, 700, msg.key);
+          continue;
+        } else if (cmd === 'wave') {
+          sendEmojiCycle(sock, from, emojiCategories.wave, 700, msg.key);
+          continue;
+        } else if (cmd === 'laugh') {
+          sendEmojiCycle(sock, from, emojiCategories.laugh, 700, msg.key);
+          continue;
+        } else if (cmd === 'cry') {
+          sendEmojiCycle(sock, from, emojiCategories.cry, 700, msg.key);
+          continue;
+        } else if (cmd === 'food') {
+          sendEmojiCycle(sock, from, emojiCategories.food, 700, msg.key);
+          continue;
+        } else if (cmd === 'emoji') {
+          const category = args[0]?.toLowerCase() || 'love';
+          if (emojiCategories[category]) {
+            sendEmojiCycle(sock, from, emojiCategories[category], 700, msg.key);
+          } else {
+            sock.sendMessage(from, { 
+              text: `❌ Category "${category}" not found.\n\nAvailable: ${Object.keys(emojiCategories).join(', ')}` 
+            }, { quoted: msg.key });
+          }
+          continue;
+        }
+      }
+
       // Store message FIRST (before processing)
-      // from already defined above in DM block check
       if (msg.key && msg.key.id) {
         if (!store.messages.has(from)) {
           store.messages.set(from, new Map());
@@ -439,6 +607,8 @@ async function startBot() {
   // Group participant updates (join/leave)
   sock.ev.on('group-participants.update', async (update) => {
     await handler.handleGroupUpdate(sock, update);
+    // ===== 🆕 AUTO-WELCOME =====
+    await handleGroupWelcome(sock, update);
   });
 
   // Handle errors - suppress common stream errors
